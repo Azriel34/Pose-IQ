@@ -57,10 +57,3 @@ class CameraStream:
         self.cap.release()
         cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-    
-    try:
-        stream = CameraStream()
-        stream.run()
-    except Exception as e:
-        print(e)
