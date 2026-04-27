@@ -3,26 +3,26 @@ import time
 
 class CameraStream:
     def __init__(self, camera_id=0):
-        # Task: implement webcam capture (OpenCV)
+        # Initialize webcam capture via OpenCV
         self.cap = cv2.VideoCapture(camera_id)
         
-        # Task: handle camera init errors
+        # Handle camera initialization errors
         if not self.cap.isOpened():
             raise RuntimeError("Error: Could not open the camera. Please check your connection.")
             
-        #for FPS calculation
+        # Variables for FPS calculation
         self.prev_frame_time = 0
         self.new_frame_time = 0
 
     def read_frame(self):
-        """read a frame from the camera"""
+        """Reads a single frame from the camera."""
         success, frame = self.cap.read()
         return success, frame
 
     def calculate_fps(self):
-        """Task: measure FPS"""
+        """Measures and calculates the Frames Per Second (FPS)."""
         self.new_frame_time = time.time()
-        # Avoid division by zero for the first frame
+        # Avoid division by zero on the first frame
         if self.prev_frame_time == 0:
             fps = 0
         else:
@@ -32,8 +32,8 @@ class CameraStream:
         return int(fps)
 
     def run(self):
-        """Task: main loop to read and display frames"""
-       # print("Starting camera stream... Press 'q' to exit.")
+        """Standalone test loop for the camera (Used mostly for debugging)."""
+        print("Starting camera stream... Press 'q' to exit.")
         
         while True:
             success, frame = self.read_frame()
@@ -41,26 +41,21 @@ class CameraStream:
                 print("Failed to read from camera. Exiting...")
                 break
 
-            # Task: calculate and display FPS on the frame
             fps = self.calculate_fps()
             cv2.putText(frame, f"FPS: {fps}", (10, 40), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
-            # Task: display frames in window
-            cv2.imshow('Camera Stream (Story 1)', frame)
+            cv2.imshow('Camera Stream', frame)
 
-            # Task: exit on 'q' key press
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        # release resources
         self.cap.release()
         cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    
     try:
         stream = CameraStream()
         stream.run()
     except Exception as e:
-        print(e)
+        print(f"Camera error: {e}")

@@ -3,21 +3,21 @@ import time
 import logging
 from camera_stream import CameraStream
 from pose_detector import PoseDetector
-from angle_calculator import AngleCalculator  # נוסף מסטורי 4
-from posture_rules import PostureRules        # ההכנה שלך לסטורי 5
+from angle_calculator import AngleCalculator  
+from posture_rules import PostureRules        
 
-# Task: add basic logging
+# Setup basic logging to see outputs in the terminal
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(message)s' # Simplified format for easier reading
 )
 
 class PosePipeline:
     def __init__(self):
-        logging.info("Initializing Real-Time Pipeline...")
+        logging.info("Initializing Real-Time Pipeline with YOLOv8...")
         self.camera = CameraStream()
         self.detector = PoseDetector()
-        self.rules = PostureRules() # Story 5
+        self.rules = PostureRules() 
 
     def run(self):
         logging.info("Starting pipeline loop. Press 'q' to exit.")
@@ -34,21 +34,24 @@ class PosePipeline:
             # 2. Process frame (Pose Detection)
             landmarks = self.detector.find_pose(frame)
 
-            # 3. Calculate Angles (Story 4)
+            # 3. Calculate Angles 
             angles = AngleCalculator.get_body_angles(landmarks)
             
-            # 4. Apply Posture Rules (Story 5 - מפעיל את השופט)
+            # 4. Apply Posture Rules
             posture_errors = []
+            # 4. Apply Posture Rules
             if angles:
+                # אנחנו לא עושים יותר if/else מפריד.
+                # אנחנו תמיד בודקים מה מצב היציבה.
                 posture_errors = self.rules.analyze_posture(angles)
                 
-                # הדפסה ללוגים כל כמה פריימים כדי לא להציף
-                if int(time.time() * 2) % 2 == 0: 
-                    logging.info(f"Angles: {angles}")
-                    if posture_errors:
-                        logging.warning(f"Errors detected: {posture_errors}")
-
-            # 5. Calculate metrics (Latency < 100ms & FPS)
+                if self.rules.is_starting_pose(angles):
+                    logging.info("🟩 READY! Starting Pose Detected")
+                elif posture_errors:
+                    # מציג את כל השגיאות (כולל "Return to starting position" אם קיים)
+                    logging.warning(f"🟥 ISSUES: {posture_errors}")
+            
+            # 5. Calculate metrics (Latency & FPS)
             process_time_ms = (time.time() - start_time) * 1000
             fps = self.camera.calculate_fps()
 

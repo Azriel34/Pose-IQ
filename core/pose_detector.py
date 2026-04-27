@@ -1,9 +1,8 @@
-import cv2
-import mediapipe as mp
+from ultralytics import YOLO
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-# Task: Map landmarks to structured object
+# Structured object for a body landmark
 @dataclass
 class Point:
     x: float
@@ -12,38 +11,35 @@ class Point:
     visibility: float
 
 class PoseDetector:
-    def __init__(self, 
-                 static_mode: bool = False, 
-                 model_complexity: int = 1, 
-                 min_detection_confidence: float = 0.5, 
-                 min_tracking_confidence: float = 0.5):
-        
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=static_mode,
-            model_complexity=model_complexity,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence
-        )
+    def __init__(self):
+        # Load the lightweight YOLOv8 pose model
+        # It will automatically download 'yolov8n-pose.pt' on the first run
+        self.model = YOLO('yolov8n-pose.pt')
 
     def find_pose(self, frame) -> Optional[Dict[int, Point]]:
         """
-           Receives a frame (from OpenCV), detects a pose, and returns a dictionary of structured points.        """
-        # MediaPipe expects RGB, but OpenCV reads in BGR
-        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # -improve latency
-        image_rgb.flags.writeable = False
-        results = self.pose.process(image_rgb)
-        image_rgb.flags.writeable = True
+        Receives a frame, detects a pose using YOLOv8, 
+        and returns a dictionary of structured points with high confidence.
+        """
+        # Run YOLOv8 inference on the frame (verbose=False hides console spam)
+        results = self.model(frame, verbose=False)
 
-        # Task: Handle missing detections
-        if not results.pose_landmarks:
+        # Check if a person or keypoints were detected
+        if not results or not results[0].keypoints or len(results[0].keypoints.xy[0]) == 0:
             return None 
 
-        # Task: Map landmarks to structured object
+        # Extract coordinates and confidence scores for the first detected person
+        keypoints = results[0].keypoints
+        xy = keypoints.xy[0].cpu().numpy()       # [X, Y] coordinates
+        conf = keypoints.conf[0].cpu().numpy()   # Visibility / Confidence score
+
         landmarks = {}
-        for id, lm in enumerate(results.pose_landmarks.landmark):
-            landmarks[id] = Point(x=lm.x, y=lm.y, z=lm.z, visibility=lm.visibility)
+        
+        # YOLO returns 17 keypoints in COCO format
+        for id, (point, visibility) in enumerate(zip(xy, conf)):
+            # Filter out guesses: Only keep points the model is at least 50% sure about
+            if float(visibility) > 0.5:
+                # YOLO doesn't provide native depth (Z), so we set it to 0.0
+                landmarks[id] = Point(x=float(point[0]), y=float(point[1]), z=0.0, visibility=float(visibility))
 
         return landmarks
