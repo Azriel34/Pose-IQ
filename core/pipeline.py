@@ -3,6 +3,7 @@ import time
 import logging
 from camera_stream import CameraStream
 from pose_detector import PoseDetector
+from angle_calculator import AngleCalculator
 
 # Task: add basic logging
 logging.basicConfig(
@@ -33,6 +34,12 @@ class PosePipeline:
             # 2. Process frame (Pose Detection)
             # The writeable=False optimization in your pose_detector helps latency here
             landmarks = self.detector.find_pose(frame)
+
+            # --- Story 4: Calculate Angles ---
+            angles = AngleCalculator.get_body_angles(landmarks)
+            if angles:
+                #print(angles)  # For debugging
+                logging.info(f"Angles: Hip={angles.get('hip')}°, Knee={angles.get('knee')}°, Spine={angles.get('spine')}°")
 
             # 3. Calculate metrics (Latency < 100ms & FPS)
             process_time_ms = (time.time() - start_time) * 1000
