@@ -9,7 +9,7 @@ from posture_rules import PostureRules
 # Setup basic logging to see outputs in the terminal
 logging.basicConfig(
     level=logging.INFO,
-    format='%(message)s' # Simplified format for easier reading
+    format='%(message)s' 
 )
 
 class PosePipeline:
@@ -18,12 +18,18 @@ class PosePipeline:
         self.camera = CameraStream()
         self.detector = PoseDetector()
         self.rules = PostureRules() 
+        
+        # Variables for state management and preventing terminal spam
+        self.current_state = None  
+        self.last_errors = []      
+        self.ready_counter = 0     
+        self.FRAMES_TO_READY = 10 
 
     def run(self):
         logging.info("Starting pipeline loop. Press 'q' to exit.")
         
         while True:
-            start_time = time.time() # For latency measurement
+            start_time = time.time()
 
             # 1. Read frame from camera
             success, frame = self.camera.read_frame()
@@ -34,22 +40,36 @@ class PosePipeline:
             # 2. Process frame (Pose Detection)
             landmarks = self.detector.find_pose(frame)
 
-            # 3. Calculate Angles 
+            # 3. Calculate Angles
             angles = AngleCalculator.get_body_angles(landmarks)
             
-            # 4. Apply Posture Rules
-            posture_errors = []
+            # Uncomment the next line if you want to see live angles printed
+            # print(f"Live Angles: {angles}") 
+            
             # 4. Apply Posture Rules
             if angles:
-                # אנחנו לא עושים יותר if/else מפריד.
-                # אנחנו תמיד בודקים מה מצב היציבה.
                 posture_errors = self.rules.analyze_posture(angles)
+                is_ready = self.rules.is_starting_pose(angles)
                 
-                if self.rules.is_starting_pose(angles):
-                    logging.info("🟩 READY! Starting Pose Detected")
-                elif posture_errors:
-                    # מציג את כל השגיאות (כולל "Return to starting position" אם קיים)
-                    logging.warning(f"🟥 ISSUES: {posture_errors}")
+                # Requires a sequence of valid frames and ensures no active errors
+                if is_ready and not posture_errors:
+                    self.ready_counter += 1
+                    if self.ready_counter >= self.FRAMES_TO_READY:
+                        if self.current_state != 'READY':
+                            logging.info("🟩 READY! Starting Pose Detected")
+                            self.current_state = 'READY'
+                            self.last_errors = []
+                else:
+                    self.ready_counter = 0 # Reset the counter as soon as there is movement or an error
+                    
+                    if posture_errors:
+                        current_messages = [e['message'] for e in posture_errors]
+                        last_messages = [e['message'] for e in self.last_errors]
+                        
+                        if self.current_state != 'ISSUES' or current_messages != last_messages:
+                            logging.warning(f"🟥 ISSUES: {posture_errors}")
+                            self.current_state = 'ISSUES'
+                            self.last_errors = posture_errors
             
             # 5. Calculate metrics (Latency & FPS)
             process_time_ms = (time.time() - start_time) * 1000

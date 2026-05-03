@@ -3,69 +3,95 @@ class PostureRules:
         # Define sensitivity thresholds for posture alerts
         self.thresholds = {
             'spine_max_lean': 45.0,  
-            'spine_warning': 30.0,   
+            'spine_warning': 20.0,   
             'knee_min_angle': 70.0,
-            # סף חדש: אם היד מתרחקת יותר מ-45 מעלות מהגוף בזמן תנועה
             'arm_max_away': 45.0     
         }
+        
+        # State management (Debouncing) - counts consecutive frames with errors
+        self.violation_counters = {
+            'spine_high': 0,
+            'spine_low': 0,
+            'right_knee': 0,
+            'left_knee': 0,
+            'right_arm_body': 0,
+            'left_arm_body': 0
+        }
+        self.FRAMES_TO_ALERT = 10 
 
     def is_starting_pose(self, angles):
-        """
-        Checks if the user is in a 'Ready' state:
-        Straight back, straight legs, and arms close to the body.
-        """
         if not angles:
             return False
 
-        spine = angles.get('spine', 90.0)
-        is_spine_straight = spine < 15.0
+        # Check only the angles that the camera actually sees in the current frame
+        spine = angles.get('spine')
+        if spine is not None and spine > 15.0:
+            return False
 
-        r_arm = angles.get('right_arm_body', 90.0)
-        l_arm = angles.get('left_arm_body', 90.0)
-        are_arms_close = min(r_arm, l_arm) < 20.0 
+        # If any arm is visible and far from the body, it's not a starting pose
+        for side in ['right_arm_body', 'left_arm_body']:
+            arm_angle = angles.get(side)
+            if arm_angle is not None and arm_angle > 20.0:
+                return False
 
-        r_knee = angles.get('right_knee', 0.0)
-        l_knee = angles.get('left_knee', 0.0)
-        is_knee_straight = max(r_knee, l_knee) > 160.0
+        # Same logic for knees - if a knee is visible, it must be straight
+        for side in ['right_knee', 'left_knee']:
+            knee_angle = angles.get(side)
+            if knee_angle is not None and knee_angle < 160.0:
+                return False
 
-        return is_spine_straight and are_arms_close and is_knee_straight
+        # Safety check: Must see at least some body parts to confirm "ready" state
+        if spine is None and 'right_knee' not in angles and 'left_knee' not in angles:
+            return False
+
+        return True
 
     def analyze_posture(self, angles):
         issues = []
         if not angles:
             return issues
 
-        # --- חוק 0: בדיקת עמידת מוצא (חדש!) ---
-        # אם המשתמש לא בעמידת מוצא, זה כשלעצמו נושא לתיקון
-        if not self.is_starting_pose(angles):
-            issues.append({
-                'joint': 'general', 
-                'severity': 'medium', 
-                'message': 'Return to starting position'
-            })
-
-        # --- Rule 1: Spine Check ---
+        # --- Rule 1: Spine Check (with debouncing) ---
         spine_angle = angles.get('spine')
-        # ... (שאר הלוגיקה של הגב נשארת כאן) ...
         if spine_angle is not None:
             if spine_angle > self.thresholds['spine_max_lean']:
-                issues.append({'joint': 'spine', 'severity': 'high', 'message': 'Keep back straight!'})
+                self.violation_counters['spine_high'] += 1
+                self.violation_counters['spine_low'] = 0 
+                
+                if self.violation_counters['spine_high'] >= self.FRAMES_TO_ALERT:
+                    issues.append({'joint': 'spine', 'severity': 'high', 'message': 'Keep back straight!'})
+            
             elif spine_angle > self.thresholds['spine_warning']:
-                issues.append({'joint': 'spine', 'severity': 'low', 'message': 'Careful with your back'})
+                self.violation_counters['spine_low'] += 1
+                self.violation_counters['spine_high'] = 0 
+                
+                if self.violation_counters['spine_low'] >= self.FRAMES_TO_ALERT:
+                    issues.append({'joint': 'spine', 'severity': 'low', 'message': 'Careful with your back'})
+            else:
+                self.violation_counters['spine_high'] = 0
+                self.violation_counters['spine_low'] = 0
 
         # --- Rule 2: Knees Check ---
-        # ... (שאר הלוגיקה של הברכיים) ...
         for side in ['right_knee', 'left_knee']:
             knee_angle = angles.get(side)
-            if knee_angle is not None and knee_angle < self.thresholds['knee_min_angle']:
-                issues.append({'joint': side, 'severity': 'medium', 'message': f"Don't bend {side.replace('_', ' ')} too deep"})
+            if knee_angle is not None:
+                if knee_angle < self.thresholds['knee_min_angle']:
+                    self.violation_counters[side] += 1
+                    if self.violation_counters[side] >= self.FRAMES_TO_ALERT:
+                        issues.append({'joint': side, 'severity': 'medium', 'message': f"Don't bend {side.replace('_', ' ')} too deep"})
+                else:
+                    self.violation_counters[side] = 0
 
         # --- Rule 3: Arms Check ---
-        # ... (שאר הלוגיקה של הידיים) ...
         for side in ['right_arm_body', 'left_arm_body']:
             arm_angle = angles.get(side)
-            if arm_angle is not None and arm_angle > self.thresholds['arm_max_away']:
-                side_name = 'Right' if 'right' in side else 'Left'
-                issues.append({'joint': side, 'severity': 'low', 'message': f"Keep {side_name} arm closer to body"})
+            if arm_angle is not None:
+                if arm_angle > self.thresholds['arm_max_away']:
+                    self.violation_counters[side] += 1
+                    if self.violation_counters[side] >= self.FRAMES_TO_ALERT:
+                        side_name = 'Right' if 'right' in side else 'Left'
+                        issues.append({'joint': side, 'severity': 'low', 'message': f"Keep {side_name} arm closer to body"})
+                else:
+                    self.violation_counters[side] = 0
 
         return issues
