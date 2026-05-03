@@ -1,8 +1,9 @@
-from ultralytics import YOLO
+import cv2
+import mediapipe as mp
+
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-# Structured object for a body landmark
 @dataclass
 class Point:
     x: float
@@ -12,34 +13,23 @@ class Point:
 
 class PoseDetector:
     def __init__(self):
-        # Load the lightweight YOLOv8 pose model
-        # It will automatically download 'yolov8n-pose.pt' on the first run
-        self.model = YOLO('yolov8n-pose.pt')
+        # שימוש סטנדרטי במודול, עכשיו שזה פייתון 3.10 זה אמור לעבוד חלק
+        self.mp_pose = mp.solutions.pose
+        self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     def find_pose(self, frame) -> Optional[Dict[int, Point]]:
-        """
-        Receives a frame, detects a pose using YOLOv8, 
-        and returns a dictionary of structured points with high confidence.
-        """
-        # Run YOLOv8 inference on the frame (verbose=False hides console spam)
-        results = self.model(frame, verbose=False)
+        # MediaPipe דורש תמונות בפורמט RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.pose.process(rgb_frame)
 
-        # Check if a person or keypoints were detected
-        if not results or not results[0].keypoints or len(results[0].keypoints.xy[0]) == 0:
-            return None 
-
-        # Extract coordinates and confidence scores for the first detected person
-        keypoints = results[0].keypoints
-        xy = keypoints.xy[0].cpu().numpy()       # [X, Y] coordinates
-        conf = keypoints.conf[0].cpu().numpy()   # Visibility / Confidence score
+        if not results.pose_landmarks:
+            return None
 
         landmarks = {}
+        h, w, c = frame.shape
         
-        # YOLO returns 17 keypoints in COCO format
-        for id, (point, visibility) in enumerate(zip(xy, conf)):
-            # Filter out guesses: Only keep points the model is at least 50% sure about
-            if float(visibility) > 0.5:
-                # YOLO doesn't provide native depth (Z), so we set it to 0.0
-                landmarks[id] = Point(x=float(point[0]), y=float(point[1]), z=0.0, visibility=float(visibility))
+        # חילוץ 33 הנקודות בתלת-מימד
+        for id, lm in enumerate(results.pose_landmarks.landmark):
+            landmarks[id] = Point(x=lm.x * w, y=lm.y * h, z=lm.z * w, visibility=lm.visibility)
 
         return landmarks
